@@ -4,7 +4,7 @@ use crate::utils::report_error;
 use itertools::{PeekNth, peek_nth};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-enum TokenType {
+pub enum TokenType {
     // Single character tokens
     LeftParen,
     RightParen,
@@ -55,11 +55,11 @@ enum TokenType {
     EOF,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Token {
-    token_type: TokenType,
-    lexeme: String,
-    line: u64,
+    pub token_type: TokenType,
+    pub lexeme: String,
+    pub line: u64,
 }
 
 pub fn scan_tokens(source: &str) -> Vec<Token> {

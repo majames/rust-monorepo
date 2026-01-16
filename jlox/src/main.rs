@@ -4,8 +4,10 @@ use std::{
     io::{self, BufRead},
 };
 
+use crate::parser::{AstPrinter, walk_expression};
 use crate::scanner::scan_tokens;
 
+pub mod parser;
 pub mod scanner;
 pub mod utils;
 
@@ -49,8 +51,20 @@ fn run_prompt() {
 
 fn run(source: &str) {
     let tokens = scan_tokens(source);
+    let mut parser = parser::Parser::new(tokens);
+    let expr = match parser.parse() {
+        Ok(e) => e,
+        Err(err) => {
+            println!("Parsing stage failed with error:");
+            println!("  {}", err);
+            return;
+        }
+    };
 
-    for token in tokens {
-        println!("{:?}", token);
-    }
+    let mut visitor = AstPrinter {
+        printed_str: String::new(),
+    };
+
+    walk_expression(&expr, &mut visitor);
+    println!("{}", visitor.printed_str);
 }
