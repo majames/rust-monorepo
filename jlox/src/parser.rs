@@ -1,10 +1,11 @@
 // Two sets of grammar rules for Lox programming language are defined below -- the second set of rules is
 // stratified to REMOVE ambiguity (e.g. multiplication binds more tightly than addition)
 //
-// expression     → literal
+// expression     → (literal
 //                | unary
 //                | binary
-//                | grouping ;
+//                | grouping)
+//                ("," expression)?   ;
 //
 // literal        → NUMBER | STRING | "true" | "false" | "nil" ;
 // grouping       → "(" expression ")" ;
@@ -14,7 +15,7 @@
 //                | "+"  | "-"  | "*" | "/" ;
 //
 // Rules with precedence (higher precedence at bottom):
-// expression     → equality ;
+// expression     → equality ("," equality)* ;
 // equality       → comparison ( ( "!=" | "==" ) comparison )* ;
 // comparison     → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
 // term           → factor ( ( "-" | "+" ) factor )* ;
@@ -50,6 +51,7 @@ pub enum Expr {
     Grouping {
         expression: Box<Expr>,
     },
+    Exprs(Vec<Expr>),
 }
 
 //// Visitor for walking Expression AST ////
@@ -68,6 +70,10 @@ pub trait Visitor {
 
     fn enter_grouping(&mut self, _expr: &Expr) {}
     fn exit_grouping(&mut self, _expr: &Expr) {}
+
+    fn enter_exprs(&mut self, _exprs: &Vec<Expr>) {}
+    fn inter_exprs(&mut self, _exprs: &Vec<Expr>, _index: usize) {}
+    fn exit_exprs(&mut self, _exprs: &Vec<Expr>) {}
 }
 
 // Traverses the expression calling visitor on each node
@@ -97,6 +103,48 @@ pub fn walk_expression(expr: &Expr, visitor: &mut impl Visitor) {
             visitor.inter_binary(left, operator, right);
             walk_expression(right, visitor);
             visitor.exit_binary(left, operator, right);
+        }
+        Expr::Exprs(exprs) => {
+            visitor.enter_exprs(exprs);
+
+            for (i, expr) in exprs.iter().enumerate() {
+                match expr {
+                    Expr::Literal(val) => {
+                        visitor.enter_literal(val);
+                        visitor.exit_literal(val);
+                    }
+                    Expr::Grouping { expression } => {
+                        visitor.enter_grouping(expression);
+                        walk_expression(expression, visitor);
+                        visitor.exit_grouping(expression);
+                    }
+                    Expr::Unary { operator, right } => {
+                        visitor.enter_unary(operator, right);
+                        walk_expression(right, visitor);
+                        visitor.exit_unary(operator, right);
+                    }
+                    Expr::Binary {
+                        left,
+                        operator,
+                        right,
+                    } => {
+                        visitor.enter_binary(left, operator, right);
+                        walk_expression(left, visitor);
+                        visitor.inter_binary(left, operator, right);
+                        walk_expression(right, visitor);
+                        visitor.exit_binary(left, operator, right);
+                    }
+                    Expr::Exprs(exprs) => {
+                        for expr in exprs {
+                            walk_expression(expr, visitor);
+                        }
+                    }
+                }
+
+                visitor.inter_exprs(exprs, i);
+            }
+
+            visitor.exit_exprs(exprs);
         }
     }
 }
@@ -141,6 +189,18 @@ impl Visitor for AstPrinter {
     }
     fn exit_binary(&mut self, _left: &Expr, _operator: &Token, _right: &Expr) {
         self.printed_str.push_str(")");
+    }
+
+    fn enter_exprs(&mut self, _exprs: &Vec<Expr>) {
+        self.printed_str.push_str("{expressions ");
+    }
+    fn inter_exprs(&mut self, exprs: &Vec<Expr>, index: usize) {
+        if index < exprs.len() - 1 {
+            self.printed_str.push(',');
+        }
+    }
+    fn exit_exprs(&mut self, _exprs: &Vec<Expr>) {
+        self.printed_str.push('}');
     }
 }
 
@@ -237,7 +297,20 @@ impl Parser {
     }
 
     fn expression(&mut self) -> Result<Expr, String> {
-        self.equality()
+        let head = self.equality()?;
+        let mut exprs = vec![head];
+
+        while matches!(self.peek().token_type, TokenType::Comma) {
+            self.advance();
+            let expr = self.equality()?;
+            exprs.push(expr);
+        }
+
+        if exprs.len() == 1 {
+            return Ok(exprs.pop().unwrap());
+        }
+
+        return Ok(Expr::Exprs(exprs));
     }
 
     fn equality(&mut self) -> Result<Expr, String> {
@@ -332,17 +405,32 @@ impl Parser {
         let token = self.peek();
 
         let result = match token.token_type {
-            TokenType::False => Ok(Expr::Literal(LiteralValue::False)),
-            TokenType::True => Ok(Expr::Literal(LiteralValue::True)),
-            TokenType::Nil => Ok(Expr::Literal(LiteralValue::Nil)),
-
-            TokenType::String => Ok(Expr::Literal(LiteralValue::String(token.lexeme.clone()))),
-            TokenType::Number => match token.lexeme.parse::<f64>() {
-                Ok(val) => Ok(Expr::Literal(LiteralValue::Number(val))),
-                Err(_) => Err(String::from("Failed to parse literal number")),
-            },
+            TokenType::False => {
+                self.advance();
+                Ok(Expr::Literal(LiteralValue::False))
+            }
+            TokenType::True => {
+                self.advance();
+                Ok(Expr::Literal(LiteralValue::True))
+            }
+            TokenType::Nil => {
+                self.advance();
+                Ok(Expr::Literal(LiteralValue::Nil))
+            }
+            TokenType::String => {
+                let token = self.advance();
+                Ok(Expr::Literal(LiteralValue::String(token.lexeme.clone())))
+            }
+            TokenType::Number => {
+                let token = self.advance();
+                match token.lexeme.parse::<f64>() {
+                    Ok(val) => Ok(Expr::Literal(LiteralValue::Number(val))),
+                    Err(_) => Err(String::from("Failed to parse literal number")),
+                }
+            }
 
             TokenType::LeftParen => {
+                self.advance();
                 let expr = self.expression()?;
                 let maybe_right_paren = self.advance();
 
@@ -356,10 +444,6 @@ impl Parser {
             }
             _ => Err(String::from("parse_primary() passed a non-literal Token!")),
         };
-
-        if !self.is_at_end() {
-            self.advance();
-        }
 
         return result;
     }
@@ -514,6 +598,125 @@ mod parser_tests {
         // check the result using the AST visitor
         walk_expression(&ast, &mut ast_visitor);
         assert_eq!(ast_visitor.printed_str, "(- 1 (/ 6 3))");
+
+        return Ok(());
+    }
+
+    #[test]
+    fn grouping() -> Result<(), String> {
+        let mut ast_visitor = AstPrinter {
+            printed_str: String::new(),
+        };
+
+        let mut parser = Parser::new(vec![
+            Token {
+                token_type: TokenType::LeftParen,
+                lexeme: String::from("("),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Number,
+                lexeme: String::from("1"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Plus,
+                lexeme: String::from("+"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Number,
+                lexeme: String::from("2"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::RightParen,
+                lexeme: String::from(")"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::EOF,
+                lexeme: String::new(),
+                line: 0,
+            },
+        ]);
+
+        let ast = parser.parse()?;
+
+        // check the result using the AST visitor
+        walk_expression(&ast, &mut ast_visitor);
+        assert_eq!(ast_visitor.printed_str, "(group (+ 1 2))");
+
+        return Ok(());
+    }
+
+    #[test]
+    fn commas() -> Result<(), String> {
+        let mut ast_visitor = AstPrinter {
+            printed_str: String::new(),
+        };
+
+        let mut parser = Parser::new(vec![
+            Token {
+                token_type: TokenType::Number,
+                lexeme: String::from("1"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Minus,
+                lexeme: String::from("+"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Number,
+                lexeme: String::from("2"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Comma,
+                lexeme: String::from(","),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::LeftParen,
+                lexeme: String::from("("),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Number,
+                lexeme: String::from("3"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Minus,
+                lexeme: String::from("+"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Number,
+                lexeme: String::from("4"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::RightParen,
+                lexeme: String::from(")"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::EOF,
+                lexeme: String::from(""),
+                line: 0,
+            },
+        ]);
+
+        let ast = parser.parse()?;
+
+        // check the result using the AST visitor
+        walk_expression(&ast, &mut ast_visitor);
+        assert_eq!(
+            ast_visitor.printed_str,
+            "{expressions (+ 1 2),(group (+ 3 4))}"
+        );
 
         return Ok(());
     }
