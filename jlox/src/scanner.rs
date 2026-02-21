@@ -17,6 +17,8 @@ pub enum TokenType {
     SemiColon,
     Slash,
     Star,
+    QuestionMark,
+    Colon,
 
     // One or two char tokens
     Bang,
@@ -166,6 +168,20 @@ pub fn scan_tokens(source: &str) -> Vec<Token> {
             '.' => {
                 tokens.push(Token {
                     token_type: TokenType::Dot,
+                    lexeme,
+                    line,
+                });
+            }
+            '?' => {
+                tokens.push(Token {
+                    token_type: TokenType::QuestionMark,
+                    lexeme,
+                    line,
+                });
+            }
+            ':' => {
+                tokens.push(Token {
+                    token_type: TokenType::Colon,
                     lexeme,
                     line,
                 });

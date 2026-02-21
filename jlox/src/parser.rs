@@ -11,11 +11,13 @@
 // grouping       → "(" expression ")" ;
 // unary          → ( "-" | "!" ) expression ;
 // binary         → expression operator expression ;
+// ternary        → expression "?" expression ":" expression ;
 // operator       → "==" | "!=" | "<" | "<=" | ">" | ">="
 //                | "+"  | "-"  | "*" | "/" ;
 //
 // Rules with precedence (higher precedence at bottom):
-// expression     → equality ("," equality)* ;
+// expression     → ternary ("," ternary)* ;
+// ternary        → equality ("?" ternary ":" ternary)? ;
 // equality       → comparison ( ( "!=" | "==" ) comparison )* ;
 // comparison     → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
 // term           → factor ( ( "-" | "+" ) factor )* ;
@@ -48,6 +50,11 @@ pub enum Expr {
         operator: Token,
         right: Box<Expr>,
     },
+    Ternary {
+        left: Box<Expr>,
+        middle: Box<Expr>,
+        right: Box<Expr>,
+    },
     Grouping {
         expression: Box<Expr>,
     },
@@ -64,6 +71,11 @@ pub trait Visitor {
     fn enter_binary(&mut self, _left: &Expr, _operator: &Token, _right: &Expr) {}
     fn inter_binary(&mut self, _left: &Expr, _operator: &Token, _right: &Expr) {}
     fn exit_binary(&mut self, _left: &Expr, _operator: &Token, _right: &Expr) {}
+
+    fn enter_ternary(&mut self, _left: &Expr, _middle: &Expr, _right: &Expr) {}
+    fn after_ternary_guard(&mut self, _left: &Expr, _middle: &Expr, _right: &Expr) {}
+    fn after_ternary_first(&mut self, _left: &Expr, _middle: &Expr, _right: &Expr) {}
+    fn exit_ternary(&mut self, _left: &Expr, _middle: &Expr, _right: &Expr) {}
 
     fn enter_unary(&mut self, _operator: &Token, _right: &Expr) {}
     fn exit_unary(&mut self, _operator: &Token, _right: &Expr) {}
@@ -104,6 +116,19 @@ pub fn walk_expression(expr: &Expr, visitor: &mut impl Visitor) {
             walk_expression(right, visitor);
             visitor.exit_binary(left, operator, right);
         }
+        Expr::Ternary {
+            left,
+            middle,
+            right,
+        } => {
+            visitor.enter_ternary(left, middle, right);
+            walk_expression(left, visitor);
+            visitor.after_ternary_guard(left, middle, right);
+            walk_expression(middle, visitor);
+            visitor.after_ternary_first(left, middle, right);
+            walk_expression(right, visitor);
+            visitor.exit_ternary(left, middle, right);
+        }
         Expr::Exprs(exprs) => {
             visitor.enter_exprs(exprs);
 
@@ -134,6 +159,19 @@ pub fn walk_expression(expr: &Expr, visitor: &mut impl Visitor) {
                         walk_expression(right, visitor);
                         visitor.exit_binary(left, operator, right);
                     }
+                    Expr::Ternary {
+                        left,
+                        middle,
+                        right,
+                    } => {
+                        visitor.enter_ternary(left, middle, right);
+                        walk_expression(left, visitor);
+                        visitor.after_ternary_guard(left, middle, right);
+                        walk_expression(middle, visitor);
+                        visitor.after_ternary_first(left, middle, right);
+                        walk_expression(right, visitor);
+                        visitor.exit_ternary(left, middle, right);
+                    }
                     Expr::Exprs(exprs) => {
                         for expr in exprs {
                             walk_expression(expr, visitor);
@@ -157,7 +195,7 @@ impl Visitor for AstPrinter {
     fn enter_literal(&mut self, val: &LiteralValue) {
         let s = match val {
             LiteralValue::Number(num) => &num.to_string(),
-            LiteralValue::String(s) => s,
+            LiteralValue::String(s) => &(String::from("\"") + s + "\""),
             LiteralValue::False => "false",
             LiteralValue::True => "true",
             LiteralValue::Nil => "nil",
@@ -188,6 +226,19 @@ impl Visitor for AstPrinter {
         self.printed_str.push_str(" ");
     }
     fn exit_binary(&mut self, _left: &Expr, _operator: &Token, _right: &Expr) {
+        self.printed_str.push_str(")");
+    }
+
+    fn enter_ternary(&mut self, _left: &Expr, _middle: &Expr, _right: &Expr) {
+        self.printed_str.push_str("(");
+    }
+    fn after_ternary_guard(&mut self, _left: &Expr, _middle: &Expr, _right: &Expr) {
+        self.printed_str.push_str(" ? ");
+    }
+    fn after_ternary_first(&mut self, _left: &Expr, _middle: &Expr, _right: &Expr) {
+        self.printed_str.push_str(" : ");
+    }
+    fn exit_ternary(&mut self, _left: &Expr, _middle: &Expr, _right: &Expr) {
         self.printed_str.push_str(")");
     }
 
@@ -224,7 +275,7 @@ mod ast_printer_tests {
             &Expr::Literal(LiteralValue::String(String::from("some string"))),
             &mut ast_visitor,
         );
-        assert_eq!(ast_visitor.printed_str, "some string");
+        assert_eq!(ast_visitor.printed_str, "\"some string\"");
     }
 
     #[test]
@@ -297,12 +348,12 @@ impl Parser {
     }
 
     fn expression(&mut self) -> Result<Expr, String> {
-        let head = self.equality()?;
+        let head = self.ternary()?;
         let mut exprs = vec![head];
 
         while matches!(self.peek().token_type, TokenType::Comma) {
             self.advance();
-            let expr = self.equality()?;
+            let expr = self.ternary()?;
             exprs.push(expr);
         }
 
@@ -311,6 +362,30 @@ impl Parser {
         }
 
         return Ok(Expr::Exprs(exprs));
+    }
+
+    fn ternary(&mut self) -> Result<Expr, String> {
+        let left = self.equality()?;
+
+        if self.peek().token_type != TokenType::QuestionMark {
+            return Ok(left);
+        }
+
+        self.advance();
+        let middle = self.ternary()?;
+
+        if self.peek().token_type != TokenType::Colon {
+            return Err(String::from("ternary missing : operator"));
+        }
+
+        self.advance();
+        let right = self.ternary()?;
+
+        return Ok(Expr::Ternary {
+            left: Box::new(left),
+            middle: Box::new(middle),
+            right: Box::new(right),
+        });
     }
 
     fn equality(&mut self) -> Result<Expr, String> {
@@ -716,6 +791,135 @@ mod parser_tests {
         assert_eq!(
             ast_visitor.printed_str,
             "{expressions (+ 1 2),(group (+ 3 4))}"
+        );
+
+        return Ok(());
+    }
+
+    #[test]
+    fn ternary() -> Result<(), String> {
+        let mut ast_visitor = AstPrinter {
+            printed_str: String::new(),
+        };
+
+        let mut parser = Parser::new(vec![
+            Token {
+                token_type: TokenType::True,
+                lexeme: String::from("true"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::QuestionMark,
+                lexeme: String::from("?"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Number,
+                lexeme: String::from("1"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Plus,
+                lexeme: String::from("+"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Number,
+                lexeme: String::from("2"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Colon,
+                lexeme: String::from(":"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Number,
+                lexeme: String::from("3"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::EOF,
+                lexeme: String::from(""),
+                line: 0,
+            },
+        ]);
+
+        let ast = parser.parse()?;
+
+        // check the result using the AST visitor
+        walk_expression(&ast, &mut ast_visitor);
+        assert_eq!(ast_visitor.printed_str, "(true ? (+ 1 2) : 3)");
+
+        return Ok(());
+    }
+
+    #[test]
+    fn multiple_ternarys() -> Result<(), String> {
+        let mut ast_visitor = AstPrinter {
+            printed_str: String::new(),
+        };
+
+        let mut parser = Parser::new(vec![
+            Token {
+                token_type: TokenType::True,
+                lexeme: String::from("false"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::QuestionMark,
+                lexeme: String::from("?"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::String,
+                lexeme: String::from("first"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Colon,
+                lexeme: String::from(":"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::True,
+                lexeme: String::from("true"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::QuestionMark,
+                lexeme: String::from("?"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::String,
+                lexeme: String::from("second"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::Colon,
+                lexeme: String::from(":"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::String,
+                lexeme: String::from("third"),
+                line: 0,
+            },
+            Token {
+                token_type: TokenType::EOF,
+                lexeme: String::from(""),
+                line: 0,
+            },
+        ]);
+
+        let ast = parser.parse()?;
+
+        // check the result using the AST visitor
+        walk_expression(&ast, &mut ast_visitor);
+        assert_eq!(
+            ast_visitor.printed_str,
+            "(true ? \"first\" : (true ? \"second\" : \"third\"))"
         );
 
         return Ok(());
