@@ -408,6 +408,7 @@ impl Parser {
         self.statement()
     }
 
+    // "var" IDENTIFIER "=" expression ";"
     fn var_declaration(&mut self) -> Result<Stmt, String> {
         self.advance(); // advance past the "var" keyword
 

@@ -1,8 +1,7 @@
 use clap::Parser;
-use std::{
-    fs,
-    io::{self, BufRead},
-};
+use rustyline::DefaultEditor;
+use rustyline::error::ReadlineError;
+use std::fs;
 
 use crate::interpreter::Interpreter;
 use crate::scanner::scan_tokens;
@@ -40,14 +39,19 @@ fn run_file(interpreter: &mut Interpreter, script_path: &str) {
 }
 
 fn run_prompt(interpreter: &mut Interpreter) {
-    println!("Enter jlox code below...");
+    println!("Lox AST walk interpreter started.");
 
-    // TODO: add history stack cycling on up arrow key press
-    let stdin = io::stdin();
-    for line in stdin.lock().lines() {
-        match line {
-            Ok(line) => run(interpreter, &line),
-            Err(err) => eprintln!("Error reading line: {}", err),
+    let mut rl = DefaultEditor::new().unwrap();
+    loop {
+        let readline = rl.readline(">> ");
+        match readline {
+            Ok(line) => {
+                rl.add_history_entry(line.as_str()).unwrap();
+                run(interpreter, &line);
+            }
+            Err(ReadlineError::Interrupted) => break, // Ctrl-C
+            Err(ReadlineError::Eof) => break,         // Ctrl-D
+            Err(err) => println!("Error: {:?}", err),
         }
     }
 }
