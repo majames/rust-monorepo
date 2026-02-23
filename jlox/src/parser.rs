@@ -401,11 +401,20 @@ impl Parser {
     }
 
     fn declaration(&mut self) -> Result<Stmt, String> {
-        if self.peek().token_type == TokenType::Var {
-            return self.var_declaration();
-        }
+        let result = match self.peek().token_type {
+            TokenType::Var => self.var_declaration(),
+            _ => self.statement(),
+        };
 
-        self.statement()
+        match result {
+            Ok(stmt) => Ok(stmt),
+            Err(message) => {
+                println!("{}", message); // TODO: improve error reporting
+
+                self.synchronize();
+                Ok(Stmt::Expr(Expr::Literal(LiteralValue::Nil)))
+            }
+        }
     }
 
     // "var" IDENTIFIER "=" expression ";"
