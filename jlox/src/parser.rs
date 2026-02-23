@@ -1,7 +1,10 @@
 // Two sets of grammar rules for Lox programming language are defined below -- the second set of rules is
 // stratified to REMOVE ambiguity (e.g. multiplication binds more tightly than addition)
 //
-// program        → statement* EOF ;
+// program        → declaration* EOF ;
+// declaration    → var_decl
+//                | statement ;
+// var_decl       → "var" IDENTIFIER ( "=" expression )? ";" ;
 // statement      → expr_stmt
 //                | print_stmt ;
 // expr_stmt      → expression ";" ;
@@ -31,6 +34,7 @@
 //                | primary ;
 // primary        → NUMBER | STRING | "true" | "false" | "nil"
 //                | "(" expression ")" ;
+//                | IDENTIFIER ;
 
 use std::fmt::{self};
 
@@ -83,12 +87,22 @@ pub enum Expr {
     Grouping {
         expression: Box<Expr>,
     },
+    // "," operator
     Exprs(Vec<Expr>),
+    Variable {
+        name: Token,
+    },
+}
+
+pub struct VarDeclaration {
+    pub name: Token,
+    pub initializer: Expr,
 }
 
 pub enum Stmt {
     Expr(Expr),
     Print(Expr),
+    VarDeclaration(VarDeclaration),
 }
 
 //// Visitor for walking Expression AST ////
@@ -207,12 +221,18 @@ pub fn walk_expression(expr: &Expr, visitor: &mut impl Visitor) {
                             walk_expression(expr, visitor);
                         }
                     }
+                    Expr::Variable { name: _ } => {
+                        // TODO:
+                    }
                 }
 
                 visitor.inter_exprs(exprs, i);
             }
 
             visitor.exit_exprs(exprs);
+        }
+        Expr::Variable { name: _ } => {
+            // TODO:
         }
     }
 }
@@ -373,11 +393,42 @@ impl Parser {
         let mut statements: Vec<Stmt> = Vec::new();
 
         while !self.is_at_end() {
-            let stmt = self.statement()?;
-            statements.push(stmt);
+            let statement = self.declaration()?;
+            statements.push(statement);
         }
 
         Ok(statements)
+    }
+
+    fn declaration(&mut self) -> Result<Stmt, String> {
+        if self.peek().token_type == TokenType::Var {
+            return self.var_declaration();
+        }
+
+        self.statement()
+    }
+
+    fn var_declaration(&mut self) -> Result<Stmt, String> {
+        self.advance(); // advance past the "var" keyword
+
+        let var_name = self.advance().clone();
+        if var_name.token_type != TokenType::Identifier {
+            return Err(String::from("Expect variable name."));
+        }
+
+        let mut initializer = Expr::Literal(LiteralValue::Nil);
+        if self.peek().token_type == TokenType::Equal {
+            self.advance(); // advance past '='
+            initializer = self.expression()?;
+        }
+
+        match self.advance().token_type {
+            TokenType::SemiColon => Ok(Stmt::VarDeclaration(VarDeclaration {
+                name: var_name,
+                initializer,
+            })),
+            _ => Err(String::from("Expect ';' after variable declaration.")),
+        }
     }
 
     fn statement(&mut self) -> Result<Stmt, String> {
@@ -565,7 +616,6 @@ impl Parser {
                     Err(_) => Err(String::from("Failed to parse literal number")),
                 }
             }
-
             TokenType::LeftParen => {
                 self.advance();
                 let expr = self.expression()?;
@@ -579,6 +629,13 @@ impl Parser {
 
                 return Err(String::from("failed to find closing right paren"));
             }
+            TokenType::Identifier => {
+                let token = self.advance();
+                Ok(Expr::Variable {
+                    // TODO: investigate removing .clone() usage
+                    name: token.clone(),
+                })
+            }
             _ => Err(String::from("parse_primary() passed a non-literal Token!")),
         };
 
@@ -586,7 +643,6 @@ impl Parser {
     }
 
     // Parser panic mode error recovery
-    // TODO: use me!
     fn synchronize(&mut self) {
         self.advance();
 

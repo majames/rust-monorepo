@@ -4,7 +4,7 @@ use std::{
     io::{self, BufRead},
 };
 
-use crate::interpreter::interpret;
+use crate::interpreter::Interpreter;
 use crate::scanner::scan_tokens;
 
 pub mod interpreter;
@@ -23,34 +23,36 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
+    let mut interpreter = Interpreter::new();
 
     match args.script {
-        Some(script) => run_file(&script),
-        None => run_prompt(),
+        Some(script) => run_file(&mut interpreter, &script),
+        None => run_prompt(&mut interpreter),
     };
 }
 
-fn run_file(script_path: &str) {
+fn run_file(interpreter: &mut Interpreter, script_path: &str) {
     let Ok(contents) = fs::read_to_string(script_path) else {
         panic!("Failed to find script");
     };
 
-    run(&contents);
+    run(interpreter, &contents);
 }
 
-fn run_prompt() {
+fn run_prompt(interpreter: &mut Interpreter) {
     println!("Enter jlox code below...");
 
+    // TODO: add history stack cycling on up arrow key press
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
         match line {
-            Ok(line) => run(&line),
+            Ok(line) => run(interpreter, &line),
             Err(err) => eprintln!("Error reading line: {}", err),
         }
     }
 }
 
-fn run(source: &str) {
+fn run(interpreter: &mut Interpreter, source: &str) {
     let tokens = scan_tokens(source);
     let mut parser = parser::Parser::new(tokens);
     let statements = match parser.parse() {
@@ -62,7 +64,7 @@ fn run(source: &str) {
         }
     };
 
-    match interpret(statements) {
+    match interpreter.interpret(statements) {
         Err(err) => println!("{}", err),
         _ => {}
     }
