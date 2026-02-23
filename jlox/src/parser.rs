@@ -29,13 +29,19 @@
 
 use crate::scanner::{Token, TokenType};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum LiteralValue {
     Number(f64),
     String(String),
     False,
     True,
     Nil,
+}
+
+impl LiteralValue {
+    pub fn from_bool(b: bool) -> Self {
+        if b { Self::True } else { Self::False }
+    }
 }
 
 #[derive(Debug, PartialEq)]

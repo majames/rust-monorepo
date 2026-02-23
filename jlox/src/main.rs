@@ -4,9 +4,10 @@ use std::{
     io::{self, BufRead},
 };
 
-use crate::parser::{AstPrinter, walk_expression};
+use crate::interpreter::evaluate;
 use crate::scanner::scan_tokens;
 
+pub mod interpreter;
 pub mod parser;
 pub mod scanner;
 pub mod utils;
@@ -61,10 +62,12 @@ fn run(source: &str) {
         }
     };
 
-    let mut visitor = AstPrinter {
-        printed_str: String::new(),
-    };
+    // let mut visitor = AstPrinter {
+    //     printed_str: String::new(),
+    // };
 
-    walk_expression(&expr, &mut visitor);
-    println!("{}", visitor.printed_str);
+    // walk_expression(&expr, &mut visitor);
+    // println!("{}", visitor.printed_str);
+
+    println!("{:?}", evaluate(&expr));
 }
