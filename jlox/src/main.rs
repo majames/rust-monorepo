@@ -4,7 +4,7 @@ use std::{
     io::{self, BufRead},
 };
 
-use crate::interpreter::evaluate;
+use crate::interpreter::interpret;
 use crate::scanner::scan_tokens;
 
 pub mod interpreter;
@@ -53,7 +53,7 @@ fn run_prompt() {
 fn run(source: &str) {
     let tokens = scan_tokens(source);
     let mut parser = parser::Parser::new(tokens);
-    let expr = match parser.parse() {
+    let statements = match parser.parse() {
         Ok(e) => e,
         Err(err) => {
             println!("Parsing stage failed with error:");
@@ -62,12 +62,8 @@ fn run(source: &str) {
         }
     };
 
-    // let mut visitor = AstPrinter {
-    //     printed_str: String::new(),
-    // };
-
-    // walk_expression(&expr, &mut visitor);
-    // println!("{}", visitor.printed_str);
-
-    println!("{:?}", evaluate(&expr));
+    match interpret(statements) {
+        Err(err) => println!("{}", err),
+        _ => {}
+    }
 }

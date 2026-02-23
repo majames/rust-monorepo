@@ -1,12 +1,17 @@
 // Two sets of grammar rules for Lox programming language are defined below -- the second set of rules is
 // stratified to REMOVE ambiguity (e.g. multiplication binds more tightly than addition)
 //
+// program        → statement* EOF ;
+// statement      → expr_stmt
+//                | print_stmt ;
+// expr_stmt      → expression ";" ;
+// print_stmt     → "print" expression ";" ;
+//
 // expression     → (literal
 //                | unary
 //                | binary
 //                | grouping)
 //                ("," expression)?   ;
-//
 // literal        → NUMBER | STRING | "true" | "false" | "nil" ;
 // grouping       → "(" expression ")" ;
 // unary          → ( "-" | "!" ) expression ;
@@ -27,6 +32,8 @@
 // primary        → NUMBER | STRING | "true" | "false" | "nil"
 //                | "(" expression ")" ;
 
+use std::fmt::{self};
+
 use crate::scanner::{Token, TokenType};
 
 #[derive(Debug, PartialEq, Clone)]
@@ -41,6 +48,18 @@ pub enum LiteralValue {
 impl LiteralValue {
     pub fn from_bool(b: bool) -> Self {
         if b { Self::True } else { Self::False }
+    }
+}
+
+impl fmt::Display for LiteralValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LiteralValue::Number(n) => write!(f, "{}", n),
+            LiteralValue::String(s) => write!(f, "\"{}\"", s),
+            LiteralValue::False => write!(f, "false"),
+            LiteralValue::True => write!(f, "true"),
+            LiteralValue::Nil => write!(f, "nil"),
+        }
     }
 }
 
@@ -65,6 +84,11 @@ pub enum Expr {
         expression: Box<Expr>,
     },
     Exprs(Vec<Expr>),
+}
+
+pub enum Stmt {
+    Expr(Expr),
+    Print(Expr),
 }
 
 //// Visitor for walking Expression AST ////
@@ -345,12 +369,44 @@ impl Parser {
         Self { tokens, current: 0 }
     }
 
-    pub fn parse(&mut self) -> Result<Expr, String> {
-        if self.tokens.len() <= 1 {
-            return Err(String::from("Must be at least 2 tokens to parse"));
+    pub fn parse(&mut self) -> Result<Vec<Stmt>, String> {
+        let mut statements: Vec<Stmt> = Vec::new();
+
+        while !self.is_at_end() {
+            let stmt = self.statement()?;
+            statements.push(stmt);
         }
 
-        self.expression()
+        Ok(statements)
+    }
+
+    fn statement(&mut self) -> Result<Stmt, String> {
+        if self.peek().token_type == TokenType::Print {
+            return self.print_statement();
+        }
+
+        self.expression_statement()
+    }
+
+    fn print_statement(&mut self) -> Result<Stmt, String> {
+        self.advance(); // consume the print statement
+        let expr = self.expression()?;
+
+        // check terminated with ';'
+        match self.advance().token_type {
+            TokenType::SemiColon => Ok(Stmt::Print(expr)),
+            _ => Err(String::from("Expect ';' after expression.")),
+        }
+    }
+
+    fn expression_statement(&mut self) -> Result<Stmt, String> {
+        let expr = self.expression()?;
+
+        // check terminated with ';'
+        match self.advance().token_type {
+            TokenType::SemiColon => Ok(Stmt::Expr(expr)),
+            _ => Err(String::from("Expect ';' after expression.")),
+        }
     }
 
     fn expression(&mut self) -> Result<Expr, String> {
@@ -590,7 +646,7 @@ mod parser_tests {
             line: 0,
         }]);
 
-        assert!(parser.parse().is_err());
+        assert!(parser.parse().is_ok());
     }
 
     #[test]
@@ -608,7 +664,7 @@ mod parser_tests {
             },
         ]);
 
-        let mut ast = number_parser.parse()?;
+        let mut ast = number_parser.expression()?;
         assert_eq!(ast, Expr::Literal(LiteralValue::Number(12345.0)));
 
         let mut string_parser = Parser::new(vec![
@@ -624,7 +680,7 @@ mod parser_tests {
             },
         ]);
 
-        ast = string_parser.parse()?;
+        ast = string_parser.expression()?;
         assert_eq!(
             ast,
             Expr::Literal(LiteralValue::String(String::from("some_string")))
@@ -674,7 +730,7 @@ mod parser_tests {
         ]);
 
         // parse list of tokens into AST
-        let ast = parser.parse()?;
+        let ast = parser.expression()?;
 
         // check the result using the AST visitor
         walk_expression(&ast, &mut ast_visitor);
@@ -722,7 +778,7 @@ mod parser_tests {
             },
         ]);
 
-        let ast = parser.parse()?;
+        let ast = parser.expression()?;
 
         // check the result using the AST visitor
         walk_expression(&ast, &mut ast_visitor);
@@ -790,7 +846,7 @@ mod parser_tests {
             },
         ]);
 
-        let ast = parser.parse()?;
+        let ast = parser.expression()?;
 
         // check the result using the AST visitor
         walk_expression(&ast, &mut ast_visitor);
@@ -851,7 +907,7 @@ mod parser_tests {
             },
         ]);
 
-        let ast = parser.parse()?;
+        let ast = parser.expression()?;
 
         // check the result using the AST visitor
         walk_expression(&ast, &mut ast_visitor);
@@ -919,7 +975,7 @@ mod parser_tests {
             },
         ]);
 
-        let ast = parser.parse()?;
+        let ast = parser.expression()?;
 
         // check the result using the AST visitor
         walk_expression(&ast, &mut ast_visitor);

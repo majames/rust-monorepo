@@ -1,7 +1,23 @@
-use crate::parser::{Expr, LiteralValue};
+use crate::parser::{Expr, LiteralValue, Stmt};
 use crate::scanner::TokenType;
 
-pub fn evaluate(expr: &Expr) -> Result<LiteralValue, String> {
+pub fn interpret(statements: Vec<Stmt>) -> Result<(), String> {
+    for statement in statements {
+        match statement {
+            Stmt::Expr(expr) => {
+                evaluate(&expr)?;
+            }
+            Stmt::Print(expr) => {
+                let val = evaluate(&expr)?;
+                println!("{}", val);
+            }
+        };
+    }
+
+    Ok(())
+}
+
+fn evaluate(expr: &Expr) -> Result<LiteralValue, String> {
     match expr {
         Expr::Literal(val) => Ok(val.clone()),
         Expr::Grouping { expression } => evaluate(expression),
