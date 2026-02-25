@@ -10,21 +10,25 @@
 // expr_stmt      → expression ";" ;
 // print_stmt     → "print" expression ";" ;
 //
-// expression     → (literal
+// expression     → literal
 //                | unary
 //                | binary
-//                | grouping)
+//                | grouping
+//                | assignment
 //                ("," expression)?   ;
 // literal        → NUMBER | STRING | "true" | "false" | "nil" ;
 // grouping       → "(" expression ")" ;
 // unary          → ( "-" | "!" ) expression ;
 // binary         → expression operator expression ;
 // ternary        → expression "?" expression ":" expression ;
+// assignment     → IDENTIFIER "=" assignment
 // operator       → "==" | "!=" | "<" | "<=" | ">" | ">="
 //                | "+"  | "-"  | "*" | "/" ;
 //
 // Rules with precedence (higher precedence at bottom):
-// expression     → ternary ("," ternary)* ;
+// expression     → assignment ("," assignment)* ;
+// assignment     → IDENTIFIER "=" assignment
+//                | ternary ;
 // ternary        → equality ("?" ternary ":" ternary)? ;
 // equality       → comparison ( ( "!=" | "==" ) comparison )* ;
 // comparison     → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
@@ -89,8 +93,13 @@ pub enum Expr {
     },
     // "," operator
     Exprs(Vec<Expr>),
+    // variable declaration
     Variable {
         name: Token,
+    },
+    Assignment {
+        name: Token,
+        value: Box<Expr>,
     },
 }
 
@@ -224,6 +233,12 @@ pub fn walk_expression(expr: &Expr, visitor: &mut impl Visitor) {
                     Expr::Variable { name: _ } => {
                         // TODO:
                     }
+                    Expr::Assignment {
+                        name: _name,
+                        value: _value,
+                    } => {
+                        // TODO:
+                    }
                 }
 
                 visitor.inter_exprs(exprs, i);
@@ -232,6 +247,12 @@ pub fn walk_expression(expr: &Expr, visitor: &mut impl Visitor) {
             visitor.exit_exprs(exprs);
         }
         Expr::Variable { name: _ } => {
+            // TODO:
+        }
+        Expr::Assignment {
+            name: _name,
+            value: _value,
+        } => {
             // TODO:
         }
     }
@@ -471,12 +492,12 @@ impl Parser {
     }
 
     fn expression(&mut self) -> Result<Expr, String> {
-        let head = self.ternary()?;
+        let head = self.assignment()?;
         let mut exprs = vec![head];
 
         while matches!(self.peek().token_type, TokenType::Comma) {
             self.advance();
-            let expr = self.ternary()?;
+            let expr = self.assignment()?;
             exprs.push(expr);
         }
 
@@ -485,6 +506,34 @@ impl Parser {
         }
 
         return Ok(Expr::Exprs(exprs));
+    }
+
+    fn assignment(&mut self) -> Result<Expr, String> {
+        let expr = self.ternary()?;
+
+        match self.peek().token_type {
+            TokenType::Equal => {
+                self.advance(); // move pointer to assignment value
+                let value = self.assignment()?;
+
+                match expr {
+                    Expr::Variable { name } => Ok(Expr::Assignment {
+                        name,
+                        value: Box::new(value),
+                    }),
+                    // can only assign values to variables
+                    _ => {
+                        // We report an error if the left-hand side isn’t a valid assignment target,
+                        // but we don’t return it because the parser isn’t in a confused state
+                        // where we need to go into panic mode and synchronize.
+                        println!("Invalid assignment target.");
+                        Ok(expr)
+                    }
+                }
+            }
+            // not an assignment
+            _ => Ok(expr),
+        }
     }
 
     fn ternary(&mut self) -> Result<Expr, String> {

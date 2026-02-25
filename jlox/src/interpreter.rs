@@ -18,9 +18,18 @@ impl Environment {
         self.values.insert(name, value);
     }
 
+    fn assign(&mut self, name: &str, value: LiteralValue) -> Result<(), String> {
+        match self.values.get(name) {
+            Some(_) => {
+                self.values.insert(name.to_string(), value);
+                Ok(())
+            }
+            None => Err(String::from("Undefined variable '") + &name + "'."),
+        }
+    }
+
     fn get(&mut self, token: &Token) -> Result<LiteralValue, String> {
         match self.values.get(&token.lexeme) {
-            // TODO: remove .clone() usage here
             Some(val) => Ok(val.clone()),
             None => Err(String::from("Undefined variable '") + &token.lexeme + "'."),
         }
@@ -172,6 +181,11 @@ impl Interpreter {
                 return Ok(result);
             }
             Expr::Variable { name } => self.environment.get(name),
+            Expr::Assignment { name, value } => {
+                let v = self.evaluate(value)?;
+                self.environment.assign(&name.lexeme, v.clone())?;
+                return Ok(v);
+            }
         }
     }
 }
