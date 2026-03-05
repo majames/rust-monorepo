@@ -6,7 +6,9 @@
 //                | statement ;
 // var_decl       → "var" IDENTIFIER ( "=" expression )? ";" ;
 // statement      → expr_stmt
-//                | print_stmt ;
+//                | print_stmt
+//                | block;
+// block          → "{" declaration* "}" ;
 // expr_stmt      → expression ";" ;
 // print_stmt     → "print" expression ";" ;
 //
@@ -112,6 +114,7 @@ pub enum Stmt {
     Expr(Expr),
     Print(Expr),
     VarDeclaration(VarDeclaration),
+    Block(Vec<Stmt>),
 }
 
 //// Visitor for walking Expression AST ////
@@ -424,6 +427,10 @@ impl Parser {
     fn declaration(&mut self) -> Result<Stmt, String> {
         let result = match self.peek().token_type {
             TokenType::Var => self.var_declaration(),
+            TokenType::LeftBrace => {
+                let block_stmts = self.block()?;
+                Ok(Stmt::Block(block_stmts))
+            }
             _ => self.statement(),
         };
 
@@ -436,6 +443,22 @@ impl Parser {
                 Ok(Stmt::Expr(Expr::Literal(LiteralValue::Nil)))
             }
         }
+    }
+
+    fn block(&mut self) -> Result<Vec<Stmt>, String> {
+        self.advance(); // advance past the left, "{", brace
+        let mut stmts = Vec::new();
+
+        while self.peek().token_type != TokenType::RightBrace && !self.is_at_end() {
+            let stmt = self.declaration()?;
+            stmts.push(stmt);
+        }
+
+        if self.advance().token_type != TokenType::RightBrace {
+            return Err(String::from("Expect '}' after block."));
+        }
+
+        Ok(stmts)
     }
 
     // "var" IDENTIFIER "=" expression ";"

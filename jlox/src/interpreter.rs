@@ -5,12 +5,21 @@ use crate::scanner::{Token, TokenType};
 
 struct Environment {
     values: HashMap<String, LiteralValue>,
+    enclosing: Option<Box<Environment>>,
 }
 
 impl Environment {
     fn new() -> Self {
         Self {
             values: HashMap::new(),
+            enclosing: None,
+        }
+    }
+
+    fn from_enclosing(enclosing: Environment) -> Self {
+        Self {
+            values: HashMap::new(),
+            enclosing: Some(Box::new(enclosing)),
         }
     }
 
@@ -19,19 +28,24 @@ impl Environment {
     }
 
     fn assign(&mut self, name: &str, value: LiteralValue) -> Result<(), String> {
-        match self.values.get(name) {
-            Some(_) => {
-                self.values.insert(name.to_string(), value);
-                Ok(())
-            }
+        if self.values.contains_key(name) {
+            self.values.insert(name.to_string(), value);
+            return Ok(());
+        }
+
+        match self.enclosing.as_mut() {
+            Some(enclosing_env) => enclosing_env.assign(name, value),
             None => Err(String::from("Undefined variable '") + &name + "'."),
         }
     }
 
-    fn get(&mut self, token: &Token) -> Result<LiteralValue, String> {
+    fn get(&self, token: &Token) -> Result<LiteralValue, String> {
         match self.values.get(&token.lexeme) {
             Some(val) => Ok(val.clone()),
-            None => Err(String::from("Undefined variable '") + &token.lexeme + "'."),
+            None => match &self.enclosing {
+                Some(enclosing_env) => enclosing_env.get(token),
+                None => Err(String::from("Undefined variable '") + &token.lexeme + "'."),
+            },
         }
     }
 }
@@ -60,6 +74,25 @@ impl Interpreter {
                 Stmt::VarDeclaration(var_declaration) => {
                     let value = self.evaluate(&var_declaration.initializer)?;
                     self.environment.define(var_declaration.name.lexeme, value);
+                }
+                Stmt::Block(stmts) => {
+                    let prev_env = std::mem::replace(&mut self.environment, Environment::new());
+
+                    // create new inner env
+                    self.environment = Environment::from_enclosing(prev_env);
+                    let result = self.interpret(stmts);
+
+                    // restore old enclosing env
+                    let inner_env = std::mem::replace(&mut self.environment, Environment::new());
+                    if let Some(enclosing_env) = inner_env.enclosing {
+                        self.environment = *enclosing_env;
+                    } else {
+                        return Err(String::from(
+                            "failed to restore enclosing environment scope",
+                        ));
+                    }
+
+                    result?;
                 }
             };
         }
