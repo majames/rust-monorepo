@@ -107,7 +107,7 @@ pub enum Expr {
 
 pub struct VarDeclaration {
     pub name: Token,
-    pub initializer: Expr,
+    pub initializer: Option<Expr>,
 }
 
 pub enum Stmt {
@@ -470,10 +470,11 @@ impl Parser {
             return Err(String::from("Expect variable name."));
         }
 
-        let mut initializer = Expr::Literal(LiteralValue::Nil);
+        let mut initializer = None;
         if self.peek().token_type == TokenType::Equal {
             self.advance(); // advance past '='
-            initializer = self.expression()?;
+            let result = self.expression()?;
+            initializer = Some(result);
         }
 
         match self.advance().token_type {

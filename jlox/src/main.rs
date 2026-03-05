@@ -76,7 +76,7 @@ fn run_stmts(interpreter: &mut Interpreter, parser: &mut parser::Parser) {
     };
 
     match interpreter.interpret(statements) {
-        Err(err) => println!("{}", err),
+        Err(err) => println!("ERROR: {}", err),
         _ => {}
     }
 }
@@ -93,7 +93,7 @@ fn run_expr(interpreter: &mut Interpreter, parser: &mut parser::Parser) {
 
     match interpreter.evaluate_expr(&expr) {
         Ok(literal) => println!("{}", literal),
-        Err(err) => println!("{}", err),
+        Err(err) => println!("ERROR: {}", err),
     }
 }
 

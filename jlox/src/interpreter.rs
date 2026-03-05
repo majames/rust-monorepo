@@ -4,7 +4,7 @@ use crate::parser::{Expr, LiteralValue, Stmt};
 use crate::scanner::{Token, TokenType};
 
 struct Environment {
-    values: HashMap<String, LiteralValue>,
+    values: HashMap<String, Option<LiteralValue>>,
     enclosing: Option<Box<Environment>>,
 }
 
@@ -23,13 +23,13 @@ impl Environment {
         }
     }
 
-    fn define(&mut self, name: String, value: LiteralValue) {
-        self.values.insert(name, value);
+    fn define(&mut self, name: String, maybe_value: Option<LiteralValue>) {
+        self.values.insert(name, maybe_value);
     }
 
     fn assign(&mut self, name: &str, value: LiteralValue) -> Result<(), String> {
         if self.values.contains_key(name) {
-            self.values.insert(name.to_string(), value);
+            self.values.insert(name.to_string(), Some(value));
             return Ok(());
         }
 
@@ -41,7 +41,10 @@ impl Environment {
 
     fn get(&self, token: &Token) -> Result<LiteralValue, String> {
         match self.values.get(&token.lexeme) {
-            Some(val) => Ok(val.clone()),
+            Some(val) => match val {
+                Some(value) => Ok(value.clone()),
+                None => Err(format!("Variable '{}' uninitialized", token.lexeme)),
+            },
             None => match &self.enclosing {
                 Some(enclosing_env) => enclosing_env.get(token),
                 None => Err(String::from("Undefined variable '") + &token.lexeme + "'."),
@@ -72,8 +75,13 @@ impl Interpreter {
                     println!("{}", val);
                 }
                 Stmt::VarDeclaration(var_declaration) => {
-                    let value = self.evaluate_expr(&var_declaration.initializer)?;
-                    self.environment.define(var_declaration.name.lexeme, value);
+                    let maybe_value = match &var_declaration.initializer {
+                        Some(expr) => Some(self.evaluate_expr(expr)?),
+                        None => None,
+                    };
+
+                    self.environment
+                        .define(var_declaration.name.lexeme, maybe_value);
                 }
                 Stmt::Block(stmts) => {
                     let prev_env = std::mem::replace(&mut self.environment, Environment::new());
