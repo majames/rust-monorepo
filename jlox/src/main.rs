@@ -4,7 +4,7 @@ use rustyline::error::ReadlineError;
 use std::fs;
 
 use crate::interpreter::Interpreter;
-use crate::scanner::scan_tokens;
+use crate::scanner::{TokenType, scan_tokens};
 
 pub mod interpreter;
 pub mod parser;
@@ -35,7 +35,8 @@ fn run_file(interpreter: &mut Interpreter, script_path: &str) {
         panic!("Failed to find script");
     };
 
-    run(interpreter, &contents);
+    let (mut parser, _) = create_parser(&contents);
+    run_stmts(interpreter, &mut parser);
 }
 
 fn run_prompt(interpreter: &mut Interpreter) {
@@ -47,7 +48,15 @@ fn run_prompt(interpreter: &mut Interpreter) {
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str()).unwrap();
-                run(interpreter, &line);
+
+                let (mut parser, has_semicolon) = create_parser(&line);
+
+                if has_semicolon {
+                    run_stmts(interpreter, &mut parser);
+                } else {
+                    // assume if line to interpret does NOT have a ";" it was passed an expression
+                    run_expr(interpreter, &mut parser);
+                }
             }
             Err(ReadlineError::Interrupted) => break, // Ctrl-C
             Err(ReadlineError::Eof) => break,         // Ctrl-D
@@ -56,9 +65,7 @@ fn run_prompt(interpreter: &mut Interpreter) {
     }
 }
 
-fn run(interpreter: &mut Interpreter, source: &str) {
-    let tokens = scan_tokens(source);
-    let mut parser = parser::Parser::new(tokens);
+fn run_stmts(interpreter: &mut Interpreter, parser: &mut parser::Parser) {
     let statements = match parser.parse() {
         Ok(e) => e,
         Err(err) => {
@@ -72,4 +79,33 @@ fn run(interpreter: &mut Interpreter, source: &str) {
         Err(err) => println!("{}", err),
         _ => {}
     }
+}
+
+fn run_expr(interpreter: &mut Interpreter, parser: &mut parser::Parser) {
+    let expr = match parser.expression() {
+        Ok(e) => e,
+        Err(err) => {
+            println!("Parsing stage failed with error:");
+            println!("  {}", err);
+            return;
+        }
+    };
+
+    match interpreter.evaluate_expr(&expr) {
+        Ok(literal) => println!("{}", literal),
+        Err(err) => println!("{}", err),
+    }
+}
+
+fn create_parser(source: &str) -> (parser::Parser, bool) {
+    let tokens = scan_tokens(source);
+
+    let mut has_semicolon = false;
+    for token in &tokens {
+        if token.token_type == TokenType::SemiColon {
+            has_semicolon = true;
+        }
+    }
+
+    return (parser::Parser::new(tokens), has_semicolon);
 }

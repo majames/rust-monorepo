@@ -514,7 +514,7 @@ impl Parser {
         }
     }
 
-    fn expression(&mut self) -> Result<Expr, String> {
+    pub fn expression(&mut self) -> Result<Expr, String> {
         let head = self.assignment()?;
         let mut exprs = vec![head];
 

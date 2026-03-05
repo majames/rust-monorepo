@@ -65,14 +65,14 @@ impl Interpreter {
         for statement in statements {
             match statement {
                 Stmt::Expr(expr) => {
-                    self.evaluate(&expr)?;
+                    self.evaluate_expr(&expr)?;
                 }
                 Stmt::Print(expr) => {
-                    let val = self.evaluate(&expr)?;
+                    let val = self.evaluate_expr(&expr)?;
                     println!("{}", val);
                 }
                 Stmt::VarDeclaration(var_declaration) => {
-                    let value = self.evaluate(&var_declaration.initializer)?;
+                    let value = self.evaluate_expr(&var_declaration.initializer)?;
                     self.environment.define(var_declaration.name.lexeme, value);
                 }
                 Stmt::Block(stmts) => {
@@ -100,12 +100,12 @@ impl Interpreter {
         Ok(())
     }
 
-    fn evaluate(&mut self, expr: &Expr) -> Result<LiteralValue, String> {
+    pub fn evaluate_expr(&mut self, expr: &Expr) -> Result<LiteralValue, String> {
         match expr {
             Expr::Literal(val) => Ok(val.clone()),
-            Expr::Grouping { expression } => self.evaluate(expression),
+            Expr::Grouping { expression } => self.evaluate_expr(expression),
             Expr::Unary { operator, right } => {
-                let literal = self.evaluate(right)?;
+                let literal = self.evaluate_expr(right)?;
 
                 match operator.token_type {
                     TokenType::Minus => match literal {
@@ -121,8 +121,8 @@ impl Interpreter {
                 operator,
                 right,
             } => {
-                let left_literal = self.evaluate(left)?;
-                let right_literal = self.evaluate(right)?;
+                let left_literal = self.evaluate_expr(left)?;
+                let right_literal = self.evaluate_expr(right)?;
 
                 match operator.token_type {
                     // arithmetic
@@ -189,11 +189,11 @@ impl Interpreter {
                 middle,
                 right,
             } => {
-                let condition = self.evaluate(left)?;
+                let condition = self.evaluate_expr(left)?;
 
                 match condition {
-                    LiteralValue::True => self.evaluate(middle),
-                    LiteralValue::False => self.evaluate(right),
+                    LiteralValue::True => self.evaluate_expr(middle),
+                    LiteralValue::False => self.evaluate_expr(right),
                     other => Err(String::from(format!(
                         "Can NOT use non-boolean value, {:?}, in ternary condition",
                         other
@@ -207,15 +207,15 @@ impl Interpreter {
                     return Err(String::from("List of expressions is empty"));
                 };
 
-                let mut result = self.evaluate(first)?;
+                let mut result = self.evaluate_expr(first)?;
                 for expr in iter {
-                    result = self.evaluate(expr)?;
+                    result = self.evaluate_expr(expr)?;
                 }
                 return Ok(result);
             }
             Expr::Variable { name } => self.environment.get(name),
             Expr::Assignment { name, value } => {
-                let v = self.evaluate(value)?;
+                let v = self.evaluate_expr(value)?;
                 self.environment.assign(&name.lexeme, v.clone())?;
                 return Ok(v);
             }
