@@ -7,7 +7,9 @@
 // var_decl       → "var" IDENTIFIER ( "=" expression )? ";" ;
 // statement      → expr_stmt
 //                | print_stmt
-//                | block;
+//                | block
+//                | if_stmt;
+// if_stmt        → "if" "(" expression ")" statement ( "else" statement )? ;
 // block          → "{" declaration* "}" ;
 // expr_stmt      → expression ";" ;
 // print_stmt     → "print" expression ";" ;
@@ -115,6 +117,11 @@ pub enum Stmt {
     Print(Expr),
     VarDeclaration(VarDeclaration),
     Block(Vec<Stmt>),
+    If {
+        condition: Expr,
+        if_branch: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
+    },
 }
 
 //// Visitor for walking Expression AST ////
@@ -431,6 +438,7 @@ impl Parser {
                 let block_stmts = self.block()?;
                 Ok(Stmt::Block(block_stmts))
             }
+            TokenType::If => self.if_stmt(),
             _ => self.statement(),
         };
 
@@ -443,6 +451,41 @@ impl Parser {
                 Ok(Stmt::Expr(Expr::Literal(LiteralValue::Nil)))
             }
         }
+    }
+
+    fn if_stmt(&mut self) -> Result<Stmt, String> {
+        self.advance(); // advance past "if"
+
+        if self.peek().token_type != TokenType::LeftParen {
+            return Err(String::from("Expected left brace after if keyword"));
+        }
+
+        self.advance(); // advance past "("
+        let condition = self.expression()?;
+
+        if self.peek().token_type != TokenType::RightParen {
+            return Err(String::from("Expected right brace in if condition"));
+        }
+
+        self.advance(); // advance past ")"
+        let if_branch = self.declaration()?;
+
+        if self.peek().token_type != TokenType::Else {
+            return Ok(Stmt::If {
+                condition,
+                if_branch: Box::new(if_branch),
+                else_branch: None,
+            });
+        }
+
+        self.advance(); // advance past "else"
+        let else_branch = self.declaration()?;
+
+        return Ok(Stmt::If {
+            condition,
+            if_branch: Box::new(if_branch),
+            else_branch: Some(Box::new(else_branch)),
+        });
     }
 
     fn block(&mut self) -> Result<Vec<Stmt>, String> {

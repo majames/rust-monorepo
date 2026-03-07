@@ -102,6 +102,24 @@ impl Interpreter {
 
                     result?;
                 }
+                Stmt::If {
+                    condition,
+                    if_branch,
+                    else_branch,
+                } => {
+                    let evaled_cond = self.evaluate_expr(&condition)?;
+
+                    match is_truthy(evaled_cond) {
+                        LiteralValue::True => self.interpret(vec![*if_branch])?,
+                        LiteralValue::False => {
+                            match else_branch {
+                                Some(else_stmt) => self.interpret(vec![*else_stmt])?,
+                                None => { /* do nothing */ }
+                            }
+                        }
+                        _ => panic!("Unreachable"),
+                    }
+                }
             };
         }
 
