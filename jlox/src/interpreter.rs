@@ -109,15 +109,13 @@ impl Interpreter {
                 } => {
                     let evaled_cond = self.evaluate_expr(&condition)?;
 
-                    match is_truthy(evaled_cond) {
-                        LiteralValue::True => self.interpret(vec![*if_branch])?,
-                        LiteralValue::False => {
-                            match else_branch {
-                                Some(else_stmt) => self.interpret(vec![*else_stmt])?,
-                                None => { /* do nothing */ }
-                            }
+                    if is_truthy(&evaled_cond) {
+                        return self.interpret(vec![*if_branch]);
+                    } else {
+                        match else_branch {
+                            Some(else_stmt) => self.interpret(vec![*else_stmt])?,
+                            None => { /* do nothing */ }
                         }
-                        _ => panic!("Unreachable"),
                     }
                 }
             };
@@ -138,7 +136,7 @@ impl Interpreter {
                         LiteralValue::Number(val) => Ok(LiteralValue::Number(-1.0 * val)),
                         _ => Err(String::from("illegal negation of non-number value")),
                     },
-                    TokenType::Bang => Ok(is_truthy(literal)),
+                    TokenType::Bang => Ok(LiteralValue::from_bool(is_truthy(&literal))),
                     _ => Err(String::from("invalid unary operator")),
                 }
             }
@@ -245,6 +243,24 @@ impl Interpreter {
                 self.environment.assign(&name.lexeme, v.clone())?;
                 return Ok(v);
             }
+            Expr::Or { left, right } => {
+                let result = self.evaluate_expr(left)?;
+
+                if is_truthy(&result) {
+                    return Ok(result);
+                }
+
+                return self.evaluate_expr(right);
+            }
+            Expr::And { left, right } => {
+                let result = self.evaluate_expr(left)?;
+
+                if is_truthy(&result) {
+                    return self.evaluate_expr(right);
+                }
+
+                return Ok(result);
+            }
         }
     }
 }
@@ -277,11 +293,11 @@ fn parse_string_literals(literal_values: &[LiteralValue]) -> Result<Vec<&String>
     return Ok(result);
 }
 
-fn is_truthy(literal: LiteralValue) -> LiteralValue {
+fn is_truthy(literal: &LiteralValue) -> bool {
     // everything but false and nil is considered truthy
     match literal {
-        LiteralValue::False => LiteralValue::False,
-        LiteralValue::Nil => LiteralValue::False,
-        _ => LiteralValue::True,
+        LiteralValue::False => false,
+        LiteralValue::Nil => false,
+        _ => true,
     }
 }

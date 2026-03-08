@@ -33,7 +33,9 @@
 // expression     → assignment ("," assignment)* ;
 // assignment     → IDENTIFIER "=" assignment
 //                | ternary ;
-// ternary        → equality ("?" ternary ":" ternary)? ;
+// ternary        → logic_or ("?" ternary ":" ternary)? ;
+// logic_or       → logic_and ( "or" logic_and )* ;
+// logic_and      → equality ( "and" equality )* ;
 // equality       → comparison ( ( "!=" | "==" ) comparison )* ;
 // comparison     → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
 // term           → factor ( ( "-" | "+" ) factor )* ;
@@ -104,6 +106,14 @@ pub enum Expr {
     Assignment {
         name: Token,
         value: Box<Expr>,
+    },
+    Or {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    And {
+        left: Box<Expr>,
+        right: Box<Expr>,
     },
 }
 
@@ -240,15 +250,7 @@ pub fn walk_expression(expr: &Expr, visitor: &mut impl Visitor) {
                             walk_expression(expr, visitor);
                         }
                     }
-                    Expr::Variable { name: _ } => {
-                        // TODO:
-                    }
-                    Expr::Assignment {
-                        name: _name,
-                        value: _value,
-                    } => {
-                        // TODO:
-                    }
+                    _ => unimplemented!("walk_expression() does NOT cover all expression types"),
                 }
 
                 visitor.inter_exprs(exprs, i);
@@ -256,15 +258,7 @@ pub fn walk_expression(expr: &Expr, visitor: &mut impl Visitor) {
 
             visitor.exit_exprs(exprs);
         }
-        Expr::Variable { name: _ } => {
-            // TODO:
-        }
-        Expr::Assignment {
-            name: _name,
-            value: _value,
-        } => {
-            // TODO:
-        }
+        _ => unimplemented!("walk_expression() does NOT cover all expression types"),
     }
 }
 
@@ -604,7 +598,7 @@ impl Parser {
     }
 
     fn ternary(&mut self) -> Result<Expr, String> {
-        let left = self.equality()?;
+        let left = self.logic_or()?;
 
         if self.peek().token_type != TokenType::QuestionMark {
             return Ok(left);
@@ -625,6 +619,38 @@ impl Parser {
             middle: Box::new(middle),
             right: Box::new(right),
         });
+    }
+
+    fn logic_or(&mut self) -> Result<Expr, String> {
+        let mut expr = self.logic_and()?;
+
+        while self.peek().token_type == TokenType::Or {
+            self.advance(); // advance past "or"
+
+            let right = self.logic_and()?;
+            expr = Expr::Or {
+                left: Box::new(expr),
+                right: Box::new(right),
+            }
+        }
+
+        return Ok(expr);
+    }
+
+    fn logic_and(&mut self) -> Result<Expr, String> {
+        let mut expr = self.equality()?;
+
+        while self.peek().token_type == TokenType::And {
+            self.advance(); // advance past "or"
+
+            let right = self.equality()?;
+            expr = Expr::And {
+                left: Box::new(expr),
+                right: Box::new(right),
+            }
+        }
+
+        return Ok(expr);
     }
 
     fn equality(&mut self) -> Result<Expr, String> {
