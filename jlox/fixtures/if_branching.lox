@@ -1,10 +1,10 @@
 if (3 > 0) {
   print "3 is greater than zero!";
 
-  if (false) {
+  if (nil) {
     print "panic!";
   } else {
-    print "false if false-y!";
+    print "nil if false-y!";
   }
 } else {
   print "panic!";

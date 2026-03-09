@@ -64,7 +64,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interpret(&mut self, statements: Vec<Stmt>) -> Result<(), String> {
+    pub fn interpret(&mut self, statements: Vec<&Stmt>) -> Result<(), String> {
         for statement in statements {
             match statement {
                 Stmt::Expr(expr) => {
@@ -81,14 +81,14 @@ impl Interpreter {
                     };
 
                     self.environment
-                        .define(var_declaration.name.lexeme, maybe_value);
+                        .define(var_declaration.name.lexeme.clone(), maybe_value);
                 }
                 Stmt::Block(stmts) => {
                     let prev_env = std::mem::replace(&mut self.environment, Environment::new());
 
                     // create new inner env
                     self.environment = Environment::from_enclosing(prev_env);
-                    let result = self.interpret(stmts);
+                    let result = self.interpret(stmts.iter().collect());
 
                     // restore old enclosing env
                     let inner_env = std::mem::replace(&mut self.environment, Environment::new());
@@ -110,12 +110,17 @@ impl Interpreter {
                     let evaled_cond = self.evaluate_expr(&condition)?;
 
                     if is_truthy(&evaled_cond) {
-                        return self.interpret(vec![*if_branch]);
+                        return self.interpret(vec![if_branch]);
                     } else {
                         match else_branch {
-                            Some(else_stmt) => self.interpret(vec![*else_stmt])?,
+                            Some(else_stmt) => self.interpret(vec![else_stmt])?,
                             None => { /* do nothing */ }
                         }
+                    }
+                }
+                Stmt::While { condition, body } => {
+                    while is_truthy(&self.evaluate_expr(&condition)?) {
+                        self.interpret(vec![body])?;
                     }
                 }
             };

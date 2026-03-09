@@ -1,0 +1,12 @@
+var i = 0;
+
+while (i < 10) {
+  print "hello from while loop";
+  i = i + 1;
+}
+
+print "";
+
+for (var j = 0; j < 5; j = j + 1) {
+  print "hello from for loop";
+}

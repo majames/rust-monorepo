@@ -8,11 +8,14 @@
 // statement      → expr_stmt
 //                | print_stmt
 //                | block
+//                | while_stmt
 //                | if_stmt;
-// if_stmt        → "if" "(" expression ")" statement ( "else" statement )? ;
-// block          → "{" declaration* "}" ;
 // expr_stmt      → expression ";" ;
 // print_stmt     → "print" expression ";" ;
+// block          → "{" declaration* "}" ;
+// while_stmt     → "while" "(" expression ")" statement ;
+// for_stmt       → "for" "(" (expr_stmt | var_decl | ";") expression? ";" expression? ")" statement ;
+// if_stmt        → "if" "(" expression ")" statement ( "else" statement )? ;
 //
 // expression     → literal
 //                | unary
@@ -69,7 +72,7 @@ impl fmt::Display for LiteralValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             LiteralValue::Number(n) => write!(f, "{}", n),
-            LiteralValue::String(s) => write!(f, "\"{}\"", s),
+            LiteralValue::String(s) => write!(f, "{}", s),
             LiteralValue::False => write!(f, "false"),
             LiteralValue::True => write!(f, "true"),
             LiteralValue::Nil => write!(f, "nil"),
@@ -131,6 +134,10 @@ pub enum Stmt {
         condition: Expr,
         if_branch: Box<Stmt>,
         else_branch: Option<Box<Stmt>>,
+    },
+    While {
+        condition: Expr,
+        body: Box<Stmt>,
     },
 }
 
@@ -433,6 +440,8 @@ impl Parser {
                 Ok(Stmt::Block(block_stmts))
             }
             TokenType::If => self.if_stmt(),
+            TokenType::While => self.while_stmt(),
+            TokenType::For => self.for_stmt(),
             _ => self.statement(),
         };
 
@@ -447,21 +456,75 @@ impl Parser {
         }
     }
 
-    fn if_stmt(&mut self) -> Result<Stmt, String> {
-        self.advance(); // advance past "if"
+    fn while_stmt(&mut self) -> Result<Stmt, String> {
+        self.advance(); // advance past "while" token
+
+        let condition = self.read_condition()?;
+        let body = self.declaration()?;
+
+        return Ok(Stmt::While {
+            condition,
+            body: Box::new(body),
+        });
+    }
+
+    // for stmt is de-suggared while stmt
+    fn for_stmt(&mut self) -> Result<Stmt, String> {
+        self.advance(); // advance past "for" token
 
         if self.peek().token_type != TokenType::LeftParen {
-            return Err(String::from("Expected left brace after if keyword"));
+            return Err(String::from("Expected right brace after \"for\" keyword"));
         }
-
         self.advance(); // advance past "("
-        let condition = self.expression()?;
 
-        if self.peek().token_type != TokenType::RightParen {
-            return Err(String::from("Expected right brace in if condition"));
+        let initializer = match self.peek().token_type {
+            TokenType::SemiColon => {
+                self.advance(); // advance past ";"
+                None
+            }
+            TokenType::Var => Some(self.var_declaration()?),
+            _ => Some(self.expression_statement()?),
+        };
+
+        let condition = match self.peek().token_type {
+            TokenType::SemiColon => Expr::Literal(LiteralValue::True), // if blank we have an infinite loop
+            _ => self.expression()?,
+        };
+        if self.peek().token_type != TokenType::SemiColon {
+            return Err(String::from("Expected \";\" in for loop"));
         }
+        self.advance(); // advance past ";"
 
+        let increment = match self.peek().token_type {
+            TokenType::RightParen => None,
+            _ => Some(self.expression()?),
+        };
+        if self.peek().token_type != TokenType::RightParen {
+            return Err(String::from("Expected right brace closing for loop"));
+        }
         self.advance(); // advance past ")"
+
+        // construct de-sugared statements from parsed for loop parts
+        let mut body = match increment {
+            Some(inc) => Stmt::Block(vec![self.declaration()?, Stmt::Expr(inc)]),
+            None => self.declaration()?,
+        };
+        body = Stmt::While {
+            condition,
+            body: Box::new(body),
+        };
+        body = match initializer {
+            Some(init) => Stmt::Block(vec![init, body]),
+            None => body,
+        };
+
+        return Ok(body);
+    }
+
+    fn if_stmt(&mut self) -> Result<Stmt, String> {
+        self.advance(); // advance past "if" token
+
+        let condition = self.read_condition()?;
         let if_branch = self.declaration()?;
 
         if self.peek().token_type != TokenType::Else {
@@ -480,6 +543,23 @@ impl Parser {
             if_branch: Box::new(if_branch),
             else_branch: Some(Box::new(else_branch)),
         });
+    }
+
+    fn read_condition(&mut self) -> Result<Expr, String> {
+        if self.peek().token_type != TokenType::LeftParen {
+            return Err(String::from("Expected left brace after if keyword"));
+        }
+
+        self.advance(); // advance past "("
+        let condition = self.expression()?;
+
+        if self.peek().token_type != TokenType::RightParen {
+            return Err(String::from("Expected right brace in if condition"));
+        }
+
+        self.advance(); // advance past ")"
+
+        return Ok(condition);
     }
 
     fn block(&mut self) -> Result<Vec<Stmt>, String> {
